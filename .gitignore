@@ -1,0 +1,26 @@
+# Database
+*.db
+*.db-wal
+*.db-shm
+
+# Environment (contains API keys)
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Daily logs (personal session data)
+memory/
+
+# Obsidian index
+.obsidian_index/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
