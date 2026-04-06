@@ -13,6 +13,8 @@ __pycache__/
 
 # Daily logs (personal session data)
 memory/
+2026*
+
 
 # Obsidian index
 .obsidian_index/
