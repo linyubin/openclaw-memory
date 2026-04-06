@@ -31,9 +31,10 @@ class DreamSignals:
 class MemoryMetabolism:
     """记忆新陈代谢管理器"""
     
-    def __init__(self, db: MemoryDBWrapper, dreams_dir: Optional[Path] = None):
+    def __init__(self, db: MemoryDBWrapper, dreams_dir: Optional[Path] = None, llm_scorer=None):
         self.db = db
         self.memory_ops = MemoryOperations(db)
+        self.llm_scorer = llm_scorer  # NEW
 
         # 配置参数
         self.STM_RETENTION_DAYS = 7  # 短期记忆保留7天
@@ -159,6 +160,59 @@ class MemoryMetabolism:
             logger.warning(f"读取 dreaming 信号失败: {e}")
             return None
 
+    def _score_stm_with_llm(self) -> bool:
+        """
+        调用 LLM 对所有 STM 记忆进行批量评分。
+        如果 llm_scorer 未配置或调用失败，返回 False。
+        """
+        if not self.llm_scorer:
+            logger.debug("未配置 LLM scorer，跳过 LLM 评分")
+            return False
+
+        # 收集所有 tier='STM' 的记忆
+        stm_memories = []
+        for table in ['user_memory', 'agent_memory']:
+            cursor = self.db.execute(f"SELECT * FROM {table} WHERE tier = 'STM'")
+            columns = [desc[0] for desc in cursor.description]
+            for row in cursor.fetchall():
+                mem = dict(zip(columns, row))
+                mem['_table'] = table
+                stm_memories.append(mem)
+
+        if not stm_memories:
+            logger.info("无 STM 记忆需要评分")
+            return False
+
+        logger.info(f"开始 LLM 批量评分，共 {len(stm_memories)} 条 STM 记忆")
+
+        # 调用 LLM 评分
+        score_results = self.llm_scorer.score_memories(stm_memories)
+
+        if not score_results:
+            logger.warning("LLM 评分返回为空，继续使用规则评分")
+            return False
+
+        # 更新分数
+        for result in score_results:
+            mem_id = result['id']
+            new_score = result['score']
+            table = None
+            # 找到对应的记忆属于哪个表
+            for mem in stm_memories:
+                if mem['id'] == mem_id:
+                    table = mem['_table']
+                    break
+            if table:
+                self.db.execute(f"""
+                    UPDATE {table}
+                    SET score = ?, updated_at = ?
+                    WHERE id = ?
+                """, (new_score, datetime.now().isoformat(), mem_id))
+
+        self.db.commit()
+        logger.info(f"LLM 评分完成，共更新 {len(score_results)} 条记忆分数")
+        return True
+
     def _promote_stm_to_ltm(self, table: str, signals: Optional[DreamSignals], stats: Dict) -> int:
         """
         执行 STM → LTM 晋升逻辑。
@@ -214,19 +268,22 @@ class MemoryMetabolism:
             # 0. 预读取 dreaming 信号（如果可用）
             self._get_dream_signals()
 
-            # 1. 重新评估所有记忆的评分
+            # 1. LLM 批量评分 STM 记忆（如果配置了 llm_scorer）
+            llm_scoring_done = self._score_stm_with_llm()
+
+            # 2. 重新评估所有记忆的评分（规则评分，作为 fallback 或补充）
             self._reevaluate_all_memory_scores()
 
-            # 2. 清理过期短期记忆
+            # 3. 清理过期短期记忆
             stm_cleaned = self.run_stm_cleanup()
 
-            # 3. 运行记忆晋升
+            # 4. 运行记忆晋升
             promotions = self.run_promotion_cycle()
 
-            # 4. 更新系统元数据
+            # 5. 更新系统元数据
             self._update_metadata()
 
-            # 5. 生成 DREAMS.md 报告（如果 dreaming 可用）
+            # 6. 生成 DREAMS.md 报告（如果 dreaming 可用）
             dreams_report_written = self._write_dreams_report()
 
             result = {
@@ -234,6 +291,7 @@ class MemoryMetabolism:
                 'timestamp': datetime.now().isoformat(),
                 'stm_cleaned': stm_cleaned,
                 'promotions': promotions,
+                'llm_scoring_done': llm_scoring_done,  # NEW
                 'dream_enabled': self.dream_signals.enabled if self.dream_signals else False,
                 'dreams_report_written': dreams_report_written
             }
