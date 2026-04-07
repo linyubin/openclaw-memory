@@ -40,7 +40,7 @@ class LLMBatchScorer:
     def __init__(self, api_key: str, endpoint: str = "https://api.scikey.ai/v1"):
         self.api_key = api_key
         self.endpoint = endpoint
-        self.model = "deepseek-ai/DeepSeek-V3-0324"
+        self.model = "deepseek-ai/DeepSeek-V3.2"
 
     def score_memories(self, memories: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
