@@ -17,7 +17,7 @@ import argparse
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any
 
 # 添加 memory 模块路径
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -58,6 +58,21 @@ def find_dreams_dir() -> Optional[Path]:
         return dreams_dir
     return None
 
+def find_llm_scorer() -> Optional[Any]:
+    """初始化 LLM scorer（如果配置了 API key）"""
+    api_key = os.environ.get('LLM_SCORER_API_KEY') or os.environ.get('EMBEDDING_API_KEY', '')
+    endpoint = os.environ.get('LLM_SCORER_ENDPOINT') or os.environ.get('EMBEDDING_ENDPOINT', '')
+
+    # 优先使用 EMBEDDING_ENDPOINT 作为 LLM endpoint
+    if not endpoint:
+        endpoint = 'https://api.scikey.ai/v1'
+
+    if not api_key:
+        return None
+
+    from memory_llm_scorer import LLMBatchScorer
+    return LLMBatchScorer(api_key=api_key, endpoint=endpoint)
+
 from db_wrapper import MemoryDBWrapper
 from memory_metabolism import MemoryMetabolism
 
@@ -83,7 +98,8 @@ def run_metabolism_cycle(dry_run: bool = False) -> dict:
     try:
         db = MemoryDBWrapper(db_path)
         dreams_dir = find_dreams_dir()
-        metabolism = MemoryMetabolism(db, dreams_dir=dreams_dir)
+        llm_scorer = find_llm_scorer()
+        metabolism = MemoryMetabolism(db, dreams_dir=dreams_dir, llm_scorer=llm_scorer)
 
         if dry_run:
             # 干运行模式：只评估不执行
