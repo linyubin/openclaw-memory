@@ -30,6 +30,7 @@ class WriteRequest(BaseModel):
     l1_overview: str
     l2_full_text: Optional[str] = None
     is_user_memory: bool = True
+    tier: str = 'STM'
 
 class SearchRequest(BaseModel):
     query: str
@@ -39,11 +40,14 @@ class SearchRequest(BaseModel):
 @app.post("/api/memory/write")
 async def write_memory(req: WriteRequest):
     try:
+        score = 7.0 if req.tier == 'LTM' else 0.0
         mem_id, is_update = searcher.deduplicated_write(
             l0_summary=req.l0_summary,
             l1_overview=req.l1_overview,
             l2_full_text=req.l2_full_text,
-            is_user_memory=req.is_user_memory
+            is_user_memory=req.is_user_memory,
+            tier=req.tier,
+            score=score
         )
         return {"status": "success", "id": mem_id, "merged": is_update}
     except Exception as e:
