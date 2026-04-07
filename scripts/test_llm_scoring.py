@@ -8,6 +8,7 @@ from pathlib import Path
 from memory_llm_scorer import LLMBatchScorer
 from memory_metabolism import MemoryMetabolism
 from db_wrapper import MemoryDBWrapper
+from memory_search import MemorySearch
 
 def test_llm_scorer_batch_structure():
     """测试批量评分返回正确的结构"""
@@ -94,10 +95,62 @@ def test_metabolism_without_llm_scorer():
         assert result.get('llm_scoring_done') is False
         print("PASS: test_metabolism_without_llm_scorer")
 
+def test_write_with_tier_ltm():
+    """测试传入 tier='LTM' 时直接写入 LTM"""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir = Path(tmpdir)
+        import shutil
+        shutil.copy(Path(__file__).parent.parent / 'schema.sql', tmpdir / 'schema.sql')
+        db_path = tmpdir / 'test.db'
+        db = MemoryDBWrapper(str(db_path))
+        searcher = MemorySearch(db)
+
+        mem_id, is_update = searcher.deduplicated_write(
+            l0_summary="测试LTM记忆",
+            l1_overview="这是一个测试",
+            l2_full_text=None,
+            memory_type="fact",
+            score=7.0,
+            tier="LTM",  # 直接写入 LTM
+            is_user_memory=True
+        )
+
+        cursor = db.execute("SELECT tier, score FROM user_memory WHERE id = ?", (mem_id,))
+        row = cursor.fetchone()
+        assert row[0] == "LTM"
+        assert row[1] == 7.0
+        print("PASS: test_write_with_tier_ltm")
+
+
+def test_write_default_stm():
+    """测试不传 tier 时默认写入 STM"""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir = Path(tmpdir)
+        import shutil
+        shutil.copy(Path(__file__).parent.parent / 'schema.sql', tmpdir / 'schema.sql')
+        db_path = tmpdir / 'test.db'
+        db = MemoryDBWrapper(str(db_path))
+        searcher = MemorySearch(db)
+
+        mem_id, is_update = searcher.deduplicated_write(
+            l0_summary="测试STM记忆",
+            l1_overview="这是一个测试",
+            tier="STM",  # 显式传 STM
+            is_user_memory=True
+        )
+
+        cursor = db.execute("SELECT tier FROM user_memory WHERE id = ?", (mem_id,))
+        row = cursor.fetchone()
+        assert row[0] == "STM"
+        print("PASS: test_write_default_stm")
+
+
 if __name__ == '__main__':
     test_llm_scorer_batch_structure()
     test_llm_scorer_parse_response()
     test_llm_scorer_disabled_when_no_key()
     test_metabolism_with_llm_scorer()
     test_metabolism_without_llm_scorer()
+    test_write_with_tier_ltm()
+    test_write_default_stm()
     print("\nAll scorer tests passed!")
